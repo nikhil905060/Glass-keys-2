@@ -1,26 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apis/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/kb_bg"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:background="@drawable/keyboard_bg_shape"
+    android:paddingStart="6dp"
+    android:paddingEnd="6dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="6dp">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="40dp"
+        android:layout_height="38dp"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="4dp">
+        android:gravity="center_vertical">
 
-        <Button
+        <ImageButton
             android:id="@+id/clip_toggle"
             android:layout_width="34dp"
             android:layout_height="34dp"
-            android:background="@android:color/transparent"
-            android:text="☢️"
-            android:textSize="18sp"
-            android:layout_marginStart="4dp" />
+            android:background="@null"
+            android:src="@drawable/ic_globe"
+            android:padding="6dp"
+            android:contentDescription="clipboard"/>
 
         <LinearLayout
             android:id="@+id/suggestion_bar"
@@ -28,31 +30,31 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:orientation="horizontal"
-            android:gravity="center_vertical" />
+            android:gravity="center"/>
 
-        <Button
+        <ImageButton
             android:id="@+id/top_globe"
             android:layout_width="34dp"
             android:layout_height="34dp"
-            android:background="@android:color/transparent"
-            android:text="🔘"
-            android:textSize="18sp"
-            android:layout_marginEnd="4dp" />
-
+            android:background="@null"
+            android:src="@drawable/ic_globe"
+            android:padding="6dp"
+            android:contentDescription="switch keyboard"/>
     </LinearLayout>
 
     <LinearLayout
         android:id="@+id/keys_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical" />
+        android:orientation="vertical"
+        android:layout_marginTop="4dp"/>
 
     <LinearLayout
         android:id="@+id/bottom_extra_row"
         android:layout_width="match_parent"
-        android:layout_height="44dp"
+        android:layout_height="30dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginTop="4dp" />
+        android:layout_marginTop="2dp"/>
 
 </LinearLayout>
