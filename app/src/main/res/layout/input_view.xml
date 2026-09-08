@@ -7,12 +7,31 @@
     android:padding="8dp">
 
     <LinearLayout
-        android:id="@+id/suggestion_bar"
         android:layout_width="match_parent"
         android:layout_height="44dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="6dp" />
+        android:layout_marginBottom="6dp">
+
+        <Button
+            android:id="@+id/clip_toggle"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@drawable/key_bg_special_shape"
+            android:text="⧉"
+            android:textColor="@color/key_text"
+            android:textAllCaps="false"
+            android:layout_marginEnd="6dp" />
+
+        <LinearLayout
+            android:id="@+id/suggestion_bar"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical" />
+
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/keys_container"
