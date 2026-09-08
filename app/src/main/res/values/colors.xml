@@ -7,4 +7,5 @@
     <color name="glass_overlay">#4090C8FF</color>
     <color name="preview_bg">#FFFFFF</color>
     <color name="divider">#C7C9CE</color>
+    <color name="accent_blue">#4FB8F0</color>
 </resources>
