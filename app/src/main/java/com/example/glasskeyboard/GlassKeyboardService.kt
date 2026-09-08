@@ -119,7 +119,7 @@ class GlassKeyboardService : InputMethodService() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            rowParams.bottomMargin = dp(8)
+            rowParams.bottomMargin = dp(6)
             rowLayout.layoutParams = rowParams
 
             if (rowIndex == 1) rowLayout.setPadding(dp(16), 0, dp(16), 0)
@@ -223,7 +223,7 @@ class GlassKeyboardService : InputMethodService() {
         btn.elevation = dp(1).toFloat()
         btn.isAllCaps = false
         val params = LinearLayout.LayoutParams(0, dp(46), 1f)
-        params.marginEnd = dp(5)
+        params.marginEnd = dp(6)
         btn.layoutParams = params
         btn.setOnClickListener {
             playGlassEffect(btn)
@@ -250,7 +250,7 @@ class GlassKeyboardService : InputMethodService() {
         btn.elevation = dp(1).toFloat()
         btn.isAllCaps = false
         val params = LinearLayout.LayoutParams(dp(widthDp), dp(46))
-        params.marginEnd = dp(5)
+        params.marginEnd = dp(6)
         btn.layoutParams = params
         btn.setOnClickListener {
             playGlassEffect(btn)
