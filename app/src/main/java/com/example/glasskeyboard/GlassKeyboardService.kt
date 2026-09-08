@@ -7,14 +7,17 @@ import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
 import android.os.Build
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
+import kotlin.math.abs
 
 class GlassKeyboardService : InputMethodService() {
 
@@ -64,6 +67,10 @@ class GlassKeyboardService : InputMethodService() {
     private val clipHistory = mutableListOf<String>()
     private lateinit var clipboardManager: ClipboardManager
 
+    // space-bar cursor drag state
+    private var spaceDragStartX = 0f
+    private var spaceIsDragging = false
+
     override fun onCreate() {
         super.onCreate()
         clipboardManager = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
@@ -111,10 +118,12 @@ class GlassKeyboardService : InputMethodService() {
         letterButtons.clear()
 
         val rows = if (symbolsMode) symbolRows else letterRows
+        val keySize = dp(44)
 
         rows.forEachIndexed { rowIndex, row ->
             val rowLayout = LinearLayout(this)
             rowLayout.orientation = LinearLayout.HORIZONTAL
+            rowLayout.gravity = Gravity.CENTER_HORIZONTAL
             val rowParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -122,10 +131,8 @@ class GlassKeyboardService : InputMethodService() {
             rowParams.bottomMargin = dp(6)
             rowLayout.layoutParams = rowParams
 
-            if (rowIndex == 1) rowLayout.setPadding(dp(16), 0, dp(16), 0)
-
             if (rowIndex == 2 && !symbolsMode) {
-                val shift = makeSpecialKey("\u21E7", widthDp = 40) {
+                val shift = makeSpecialKey("\u21E7", widthDp = 40, heightPx = keySize) {
                     shiftOn = !shiftOn
                     updateCase()
                 }
@@ -134,13 +141,13 @@ class GlassKeyboardService : InputMethodService() {
             }
 
             row.forEach { ch ->
-                val key = makeCharKey(ch, isLetter = !symbolsMode)
+                val key = makeCharKey(ch, isLetter = !symbolsMode, sizePx = keySize)
                 rowLayout.addView(key)
                 if (!symbolsMode) letterButtons.add(key)
             }
 
             if (rowIndex == 2) {
-                val back = makeSpecialKey("\u232B", widthDp = 40) { handleBackspace() }
+                val back = makeSpecialKey("\u232B", widthDp = 40, heightPx = keySize) { handleBackspace() }
                 rowLayout.addView(back)
             }
 
@@ -155,23 +162,19 @@ class GlassKeyboardService : InputMethodService() {
         )
         bottomRow.layoutParams = bottomParams
 
-        val toggle = makeSpecialKey(if (symbolsMode) "ABC" else "123", widthDp = 52) {
+        val toggle = makeSpecialKey(if (symbolsMode) "ABC" else "123", widthDp = 52, heightPx = keySize) {
             symbolsMode = !symbolsMode
             buildKeyboard()
         }
         bottomRow.addView(toggle)
 
-        val space = makeSpecialKeyFlex("space") { commitAndTrack(" ") }
+        val space = makeSpaceKey(keySize)
         val spaceParams = space.layoutParams as LinearLayout.LayoutParams
         spaceParams.marginStart = dp(6)
         space.layoutParams = spaceParams
         bottomRow.addView(space)
 
-        val enter = makeSpecialKey("\u21B5", widthDp = 64) {
-            sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
-            wordBuffer.clear()
-            renderSuggestions()
-        }
+        val enter = makeEnterKey(keySize)
         val enterParams = enter.layoutParams as LinearLayout.LayoutParams
         enterParams.marginStart = dp(6)
         enter.layoutParams = enterParams
@@ -210,7 +213,7 @@ class GlassKeyboardService : InputMethodService() {
         bottomExtraRow.addView(mic)
     }
 
-    private fun makeCharKey(ch: String, isLetter: Boolean): Button {
+    private fun makeCharKey(ch: String, isLetter: Boolean, sizePx: Int): Button {
         val btn = Button(this)
         btn.text = ch
         btn.tag = ch
@@ -218,11 +221,12 @@ class GlassKeyboardService : InputMethodService() {
         btn.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         btn.background = GradientDrawable().apply {
             setColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.key_bg))
-            cornerRadius = dp(8).toFloat()
+            cornerRadius = dp(14).toFloat()
         }
         btn.elevation = dp(1).toFloat()
         btn.isAllCaps = false
-        val params = LinearLayout.LayoutParams(0, dp(46), 1f)
+        btn.setPadding(0, 0, 0, 0)
+        val params = LinearLayout.LayoutParams(sizePx, sizePx)
         params.marginEnd = dp(6)
         btn.layoutParams = params
         btn.setOnClickListener {
@@ -238,18 +242,18 @@ class GlassKeyboardService : InputMethodService() {
         return btn
     }
 
-    private fun makeSpecialKey(label: String, widthDp: Int, onClick: () -> Unit): Button {
+    private fun makeSpecialKey(label: String, widthDp: Int, heightPx: Int, onClick: () -> Unit): Button {
         val btn = Button(this)
         btn.text = label
         btn.textSize = 15f
         btn.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         btn.background = GradientDrawable().apply {
             setColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.key_bg_special))
-            cornerRadius = dp(8).toFloat()
+            cornerRadius = dp(14).toFloat()
         }
         btn.elevation = dp(1).toFloat()
         btn.isAllCaps = false
-        val params = LinearLayout.LayoutParams(dp(widthDp), dp(46))
+        val params = LinearLayout.LayoutParams(dp(widthDp), heightPx)
         params.marginEnd = dp(6)
         btn.layoutParams = params
         btn.setOnClickListener {
@@ -260,23 +264,72 @@ class GlassKeyboardService : InputMethodService() {
         return btn
     }
 
-    private fun makeSpecialKeyFlex(label: String, onClick: () -> Unit): Button {
+    private fun makeSpaceKey(heightPx: Int): Button {
         val btn = Button(this)
-        btn.text = label
+        btn.text = "space"
         btn.textSize = 15f
         btn.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         btn.background = GradientDrawable().apply {
             setColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.key_bg))
-            cornerRadius = dp(8).toFloat()
+            cornerRadius = dp(14).toFloat()
         }
         btn.elevation = dp(1).toFloat()
         btn.isAllCaps = false
-        val params = LinearLayout.LayoutParams(0, dp(46), 1f)
+        val params = LinearLayout.LayoutParams(0, heightPx, 1f)
+        btn.layoutParams = params
+
+        btn.setOnClickListener {
+            playGlassEffect(btn)
+            playHaptic(btn)
+            commitAndTrack(" ")
+        }
+
+        val dragStepPx = dp(8)
+        btn.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    spaceDragStartX = event.rawX
+                    spaceIsDragging = false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - spaceDragStartX
+                    if (abs(dx) > dragStepPx) {
+                        spaceIsDragging = true
+                        playHaptic(v)
+                        sendDownUpKeyEvents(
+                            if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT
+                        )
+                        spaceDragStartX = event.rawX
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (!spaceIsDragging) {
+                        v.performClick()
+                    }
+                    spaceIsDragging = false
+                }
+            }
+            true
+        }
+        return btn
+    }
+
+    private fun makeEnterKey(heightPx: Int): Button {
+        val btn = Button(this)
+        btn.text = ""
+        btn.background = GradientDrawable().apply {
+            setColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.accent_blue))
+            cornerRadius = dp(14).toFloat()
+        }
+        btn.elevation = dp(1).toFloat()
+        val params = LinearLayout.LayoutParams(dp(64), heightPx)
         btn.layoutParams = params
         btn.setOnClickListener {
             playGlassEffect(btn)
             playHaptic(btn)
-            onClick()
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+            wordBuffer.clear()
+            renderSuggestions()
         }
         return btn
     }
@@ -324,7 +377,7 @@ class GlassKeyboardService : InputMethodService() {
                     if (shiftOn) R.color.key_bg_special_active else R.color.key_bg_special
                 )
             )
-            cornerRadius = dp(8).toFloat()
+            cornerRadius = dp(14).toFloat()
         }
     }
 
