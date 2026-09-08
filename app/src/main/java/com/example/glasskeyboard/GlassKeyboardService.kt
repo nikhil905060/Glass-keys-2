@@ -13,9 +13,13 @@ import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.PopupWindow
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
 
@@ -58,7 +62,7 @@ class GlassKeyboardService : InputMethodService() {
     private lateinit var keysContainer: LinearLayout
     private lateinit var bottomExtraRow: LinearLayout
     private val letterButtons = mutableListOf<Button>()
-    private var shiftButton: Button? = null
+    private var commandButton: ImageButton? = null
     private var shiftOn = false
     private var symbolsMode = false
     private var clipboardMode = false
@@ -67,9 +71,11 @@ class GlassKeyboardService : InputMethodService() {
     private val clipHistory = mutableListOf<String>()
     private lateinit var clipboardManager: ClipboardManager
 
-    // space-bar cursor drag state
     private var spaceDragStartX = 0f
     private var spaceIsDragging = false
+
+    private var previewPopup: PopupWindow? = null
+    private var previewText: TextView? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -103,6 +109,7 @@ class GlassKeyboardService : InputMethodService() {
             (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
         }
 
+        setupPreviewPopup(root)
         buildKeyboard()
         buildBottomExtraRow()
         renderSuggestions()
@@ -111,14 +118,52 @@ class GlassKeyboardService : InputMethodService() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
-    // ---- keyboard construction ----
+    private fun setupPreviewPopup(root: View) {
+        previewText = TextView(this).apply {
+            textSize = 22f
+            setTextColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.key_text))
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            background = ContextCompat.getDrawable(this@GlassKeyboardService, R.drawable.popup_bg)
+            elevation = dp(6).toFloat()
+        }
+        previewPopup = PopupWindow(
+            previewText,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            false
+        ).apply {
+            isTouchable = false
+            isClippingEnabled = false
+        }
+    }
+
+    private fun showKeyPreview(anchor: View, text: String) {
+        val popup = previewPopup ?: return
+        previewText?.text = text
+        val loc = IntArray(2)
+        anchor.getLocationInWindow(loc)
+        val x = loc[0] + anchor.width / 2 - dp(20)
+        val y = loc[1] - dp(48)
+        try {
+            if (popup.isShowing) {
+                popup.update(x, y, -1, -1)
+            } else {
+                popup.showAtLocation(anchor, Gravity.NO_GRAVITY, x, y)
+            }
+        } catch (e: Exception) { }
+    }
+
+    private fun hideKeyPreview() {
+        previewPopup?.takeIf { it.isShowing }?.dismiss()
+    }
 
     private fun buildKeyboard() {
         keysContainer.removeAllViews()
         letterButtons.clear()
 
         val rows = if (symbolsMode) symbolRows else letterRows
-        val keySize = dp(44)
+        val keySize = dp(36)
 
         rows.forEachIndexed { rowIndex, row ->
             val rowLayout = LinearLayout(this)
@@ -128,16 +173,16 @@ class GlassKeyboardService : InputMethodService() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            rowParams.bottomMargin = dp(6)
+            rowParams.bottomMargin = dp(5)
             rowLayout.layoutParams = rowParams
 
             if (rowIndex == 2 && !symbolsMode) {
-                val shift = makeSpecialKey("\u21E7", widthDp = 40, heightPx = keySize) {
+                val cmd = makeIconKey(R.drawable.ic_command, widthDp = 38, heightPx = keySize) {
                     shiftOn = !shiftOn
                     updateCase()
                 }
-                shiftButton = shift
-                rowLayout.addView(shift)
+                commandButton = cmd
+                rowLayout.addView(cmd)
             }
 
             row.forEach { ch ->
@@ -147,7 +192,9 @@ class GlassKeyboardService : InputMethodService() {
             }
 
             if (rowIndex == 2) {
-                val back = makeSpecialKey("\u232B", widthDp = 40, heightPx = keySize) { handleBackspace() }
+                val back = makeIconKey(R.drawable.ic_backspace, widthDp = 38, heightPx = keySize) {
+                    handleBackspace()
+                }
                 rowLayout.addView(back)
             }
 
@@ -156,28 +203,23 @@ class GlassKeyboardService : InputMethodService() {
 
         val bottomRow = LinearLayout(this)
         bottomRow.orientation = LinearLayout.HORIZONTAL
-        val bottomParams = LinearLayout.LayoutParams(
+        bottomRow.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         )
-        bottomRow.layoutParams = bottomParams
 
-        val toggle = makeSpecialKey(if (symbolsMode) "ABC" else "123", widthDp = 52, heightPx = keySize) {
+        val toggle = makeSpecialKey(if (symbolsMode) "ABC" else "123", widthDp = 46, heightPx = keySize) {
             symbolsMode = !symbolsMode
             buildKeyboard()
         }
         bottomRow.addView(toggle)
 
         val space = makeSpaceKey(keySize)
-        val spaceParams = space.layoutParams as LinearLayout.LayoutParams
-        spaceParams.marginStart = dp(6)
-        space.layoutParams = spaceParams
+        (space.layoutParams as LinearLayout.LayoutParams).marginStart = dp(5)
         bottomRow.addView(space)
 
         val enter = makeEnterKey(keySize)
-        val enterParams = enter.layoutParams as LinearLayout.LayoutParams
-        enterParams.marginStart = dp(6)
-        enter.layoutParams = enterParams
+        (enter.layoutParams as LinearLayout.LayoutParams).marginStart = dp(5)
         bottomRow.addView(enter)
 
         keysContainer.addView(bottomRow)
@@ -186,14 +228,16 @@ class GlassKeyboardService : InputMethodService() {
     private fun buildBottomExtraRow() {
         bottomExtraRow.removeAllViews()
 
-        val globe = Button(this)
-        globe.text = "🌐"
-        globe.textSize = 18f
-        globe.background = null
-        globe.layoutParams = LinearLayout.LayoutParams(dp(44), LinearLayout.LayoutParams.MATCH_PARENT)
-        globe.setOnClickListener {
-            playHaptic(it)
-            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
+        val globe = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_globe)
+            background = null
+            isLongClickable = false
+            tooltipText = null
+            layoutParams = LinearLayout.LayoutParams(dp(34), LinearLayout.LayoutParams.MATCH_PARENT)
+            setOnClickListener {
+                playHaptic(it)
+                (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
+            }
         }
         bottomExtraRow.addView(globe)
 
@@ -201,34 +245,45 @@ class GlassKeyboardService : InputMethodService() {
         spacer.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
         bottomExtraRow.addView(spacer)
 
-        val mic = Button(this)
-        mic.text = "🎤"
-        mic.textSize = 18f
-        mic.background = null
-        mic.layoutParams = LinearLayout.LayoutParams(dp(44), LinearLayout.LayoutParams.MATCH_PARENT)
-        mic.setOnClickListener {
-            playHaptic(it)
-            // Voice input isn't wired up yet — placeholder for now.
+        val mic = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_mic)
+            background = null
+            isLongClickable = false
+            tooltipText = null
+            layoutParams = LinearLayout.LayoutParams(dp(34), LinearLayout.LayoutParams.MATCH_PARENT)
+            setOnClickListener {
+                playHaptic(it)
+            }
         }
         bottomExtraRow.addView(mic)
     }
 
     private fun makeCharKey(ch: String, isLetter: Boolean, sizePx: Int): Button {
         val btn = Button(this)
-        btn.text = ch
+        btn.text = if (isLetter && shiftOn) ch.uppercase() else ch
         btn.tag = ch
-        btn.textSize = 20f
+        btn.textSize = 18f
         btn.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         btn.background = GradientDrawable().apply {
             setColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.key_bg))
-            cornerRadius = dp(14).toFloat()
+            cornerRadius = dp(12).toFloat()
         }
         btn.elevation = dp(1).toFloat()
         btn.isAllCaps = false
+        btn.isLongClickable = false
+        btn.tooltipText = null
+        btn.setOnLongClickListener { true }
         btn.setPadding(0, 0, 0, 0)
         val params = LinearLayout.LayoutParams(sizePx, sizePx)
-        params.marginEnd = dp(6)
+        params.marginEnd = dp(5)
         btn.layoutParams = params
+        btn.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> showKeyPreview(v, if (isLetter && shiftOn) ch.uppercase() else ch)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> hideKeyPreview()
+            }
+            false
+        }
         btn.setOnClickListener {
             playGlassEffect(btn)
             playHaptic(btn)
@@ -245,16 +300,43 @@ class GlassKeyboardService : InputMethodService() {
     private fun makeSpecialKey(label: String, widthDp: Int, heightPx: Int, onClick: () -> Unit): Button {
         val btn = Button(this)
         btn.text = label
-        btn.textSize = 15f
+        btn.textSize = 13f
         btn.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         btn.background = GradientDrawable().apply {
             setColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.key_bg_special))
-            cornerRadius = dp(14).toFloat()
+            cornerRadius = dp(12).toFloat()
         }
         btn.elevation = dp(1).toFloat()
         btn.isAllCaps = false
+        btn.isLongClickable = false
+        btn.tooltipText = null
+        btn.setOnLongClickListener { true }
         val params = LinearLayout.LayoutParams(dp(widthDp), heightPx)
-        params.marginEnd = dp(6)
+        params.marginEnd = dp(5)
+        btn.layoutParams = params
+        btn.setOnClickListener {
+            playGlassEffect(btn)
+            playHaptic(btn)
+            onClick()
+        }
+        return btn
+    }
+
+    private fun makeIconKey(iconRes: Int, widthDp: Int, heightPx: Int, onClick: () -> Unit): ImageButton {
+        val btn = ImageButton(this)
+        btn.setImageResource(iconRes)
+        btn.scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+        btn.setPadding(dp(8), dp(8), dp(8), dp(8))
+        btn.background = GradientDrawable().apply {
+            setColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.key_bg_special))
+            cornerRadius = dp(12).toFloat()
+        }
+        btn.elevation = dp(1).toFloat()
+        btn.isLongClickable = false
+        btn.tooltipText = null
+        btn.setOnLongClickListener { true }
+        val params = LinearLayout.LayoutParams(dp(widthDp), heightPx)
+        params.marginEnd = dp(5)
         btn.layoutParams = params
         btn.setOnClickListener {
             playGlassEffect(btn)
@@ -267,16 +349,18 @@ class GlassKeyboardService : InputMethodService() {
     private fun makeSpaceKey(heightPx: Int): Button {
         val btn = Button(this)
         btn.text = "space"
-        btn.textSize = 15f
+        btn.textSize = 13f
         btn.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         btn.background = GradientDrawable().apply {
             setColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.key_bg))
-            cornerRadius = dp(14).toFloat()
+            cornerRadius = dp(12).toFloat()
         }
         btn.elevation = dp(1).toFloat()
         btn.isAllCaps = false
-        val params = LinearLayout.LayoutParams(0, heightPx, 1f)
-        btn.layoutParams = params
+        btn.isLongClickable = false
+        btn.tooltipText = null
+        btn.setOnLongClickListener { true }
+        btn.layoutParams = LinearLayout.LayoutParams(0, heightPx, 1f)
 
         btn.setOnClickListener {
             playGlassEffect(btn)
@@ -303,9 +387,7 @@ class GlassKeyboardService : InputMethodService() {
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (!spaceIsDragging) {
-                        v.performClick()
-                    }
+                    if (!spaceIsDragging) v.performClick()
                     spaceIsDragging = false
                 }
             }
@@ -319,11 +401,13 @@ class GlassKeyboardService : InputMethodService() {
         btn.text = ""
         btn.background = GradientDrawable().apply {
             setColor(ContextCompat.getColor(this@GlassKeyboardService, R.color.accent_blue))
-            cornerRadius = dp(14).toFloat()
+            cornerRadius = dp(12).toFloat()
         }
         btn.elevation = dp(1).toFloat()
-        val params = LinearLayout.LayoutParams(dp(64), heightPx)
-        btn.layoutParams = params
+        btn.isLongClickable = false
+        btn.tooltipText = null
+        btn.setOnLongClickListener { true }
+        btn.layoutParams = LinearLayout.LayoutParams(dp(56), heightPx)
         btn.setOnClickListener {
             playGlassEffect(btn)
             playHaptic(btn)
@@ -370,14 +454,14 @@ class GlassKeyboardService : InputMethodService() {
             val ch = btn.tag as String
             btn.text = if (shiftOn) ch.uppercase() else ch
         }
-        shiftButton?.background = GradientDrawable().apply {
+        commandButton?.background = GradientDrawable().apply {
             setColor(
                 ContextCompat.getColor(
                     this@GlassKeyboardService,
                     if (shiftOn) R.color.key_bg_special_active else R.color.key_bg_special
                 )
             )
-            cornerRadius = dp(14).toFloat()
+            cornerRadius = dp(12).toFloat()
         }
     }
 
@@ -398,14 +482,16 @@ class GlassKeyboardService : InputMethodService() {
     private fun chip(text: String, onTap: () -> Unit): Button {
         val btn = Button(this)
         btn.text = text
-        btn.textSize = 14f
+        btn.textSize = 13f
         btn.isAllCaps = false
         btn.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         btn.setBackgroundColor(0)
         btn.maxLines = 1
+        btn.isLongClickable = false
+        btn.tooltipText = null
+        btn.setOnLongClickListener { true }
         btn.ellipsize = android.text.TextUtils.TruncateAt.END
-        val params = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-        btn.layoutParams = params
+        btn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
         btn.setOnClickListener {
             playHaptic(it)
             onTap()
@@ -416,7 +502,7 @@ class GlassKeyboardService : InputMethodService() {
     private fun divider(): View {
         val d = View(this)
         val p = LinearLayout.LayoutParams(dp(1), LinearLayout.LayoutParams.MATCH_PARENT)
-        p.topMargin = dp(8); p.bottomMargin = dp(8)
+        p.topMargin = dp(6); p.bottomMargin = dp(6)
         d.layoutParams = p
         d.setBackgroundColor(ContextCompat.getColor(this, R.color.divider))
         return d
@@ -449,10 +535,4 @@ class GlassKeyboardService : InputMethodService() {
             suggestionBar.addView(chip(display) {
                 currentInputConnection?.deleteSurroundingText(current.length, 0)
                 currentInputConnection?.commitText("$display ", 1)
-                wordBuffer.clear()
-                renderSuggestions()
-            })
-            if (index < sugs.size - 1) suggestionBar.addView(divider())
-        }
-    }
-}
+   
